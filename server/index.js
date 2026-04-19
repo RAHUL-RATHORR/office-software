@@ -36,3 +36,6 @@ connectDB().then(() => {
 app.get('/', (req, res) => {
   res.send('DomainTrack API is running...');
 });
+app.get("/", (req, res) => {
+  res.send("API is running 🚀");
+});
