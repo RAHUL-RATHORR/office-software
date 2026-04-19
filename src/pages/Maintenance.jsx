@@ -1,27 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Search, Phone, Mail, MapPin, Notebook, User, Edit2, History, Clock, FileText, Calendar, ToggleLeft, ToggleRight, CheckCircle2, XCircle, Trash2, Activity } from 'lucide-react';
+import { Plus, Search, Phone, Mail, MapPin, Notebook, User, Edit2, History, Clock, FileText, Calendar, ToggleLeft, ToggleRight, CheckCircle2, XCircle, Trash2, Activity, Loader2, Save } from 'lucide-react';
 import Modal from '../components/common/Modal';
-import { clients as initialClients } from '../data/mockData';
+
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 export default function Maintenance() {
-  const [clients, setClients] = useState(() => {
-    const saved = localStorage.getItem('domaintrack_clients');
-    const parsed = saved ? JSON.parse(saved) : initialClients;
-    return parsed.map(c => ({
-      ...c,
-      isActive: c.isActive === undefined ? true : c.isActive,
-      address: c.address || '',
-      notes: c.notes || '',
-      serviceName: c.serviceName || '',
-      amount: c.amount || c.paidAmount || 0,
-      expiryDate: c.expiryDate || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
-    }));
-  });
-
-  const [history, setHistory] = useState(() => {
-    const saved = localStorage.getItem('domaintrack_history');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [clients, setClients] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -46,13 +34,33 @@ export default function Maintenance() {
     expiryDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
   });
 
+  // Fetch Data from API
   useEffect(() => {
-    localStorage.setItem('domaintrack_clients', JSON.stringify(clients));
-  }, [clients]);
+    fetchData();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem('domaintrack_history', JSON.stringify(history));
-  }, [history]);
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [clientsRes, historyRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/api/maintenance`),
+        fetch(`${API_BASE_URL}/api/history`)
+      ]);
+      
+      if (clientsRes.ok) {
+        const clientsData = await clientsRes.json();
+        setClients(clientsData);
+      }
+      if (historyRes.ok) {
+        const historyData = await historyRes.json();
+        setHistory(historyData);
+      }
+    } catch (error) {
+      console.error('Error fetching maintenance data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -68,6 +76,7 @@ export default function Maintenance() {
       notes: '',
       serviceName: '',
       amount: 0,
+      isActive: true,
       expiryDate: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
     });
     setEditingId(null);
@@ -78,19 +87,20 @@ export default function Maintenance() {
     setFormData({
       name: client.name,
       phone: client.phone,
-      email: client.email,
+      email: client.email || '',
       address: client.address || '',
       notes: client.notes || '',
       serviceName: client.serviceName || '',
       amount: client.amount || 0,
+      isActive: client.isActive,
       expiryDate: client.expiryDate || new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0]
     });
-    setEditingId(client.id);
+    setEditingId(client._id);
     setIsModalOpen(true);
   };
 
   const toggleStatus = (id) => {
-    const client = clients.find(c => c.id === id);
+    const client = clients.find(c => c._id === id);
     setConfirmData({
       id: id,
       action: client.isActive ? 'Inactivate' : 'Activate',
@@ -99,11 +109,25 @@ export default function Maintenance() {
     setIsConfirmOpen(true);
   };
 
-  const handleConfirmStatus = () => {
-    setClients(prev => prev.map(c => 
-      c.id === confirmData.id ? { ...c, isActive: !c.isActive } : c
-    ));
-    setIsConfirmOpen(false);
+  const confirmStatusChange = async () => {
+    setIsSubmitting(true);
+    const client = clients.find(c => c._id === confirmData.id);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/maintenance/${confirmData.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isActive: !client.isActive })
+      });
+      if (response.ok) {
+        const updated = await response.json();
+        setClients(prev => prev.map(c => c._id === confirmData.id ? updated : c));
+        setIsConfirmOpen(false);
+      }
+    } catch (error) {
+      console.error('Error toggling status:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleDeleteClick = (id) => {
@@ -111,424 +135,237 @@ export default function Maintenance() {
     setIsDeleteOpen(true);
   };
 
-  const confirmDelete = () => {
-    setClients(prev => prev.filter(c => c.id !== deleteId));
-    setIsDeleteOpen(false);
-    setDeleteId(null);
-  };
-
-  const getDaysLeft = (dateStr) => {
-    if (!dateStr) return 0;
-    const expiry = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const diffTime = expiry - today;
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const sendWhatsApp = (client) => {
-    const days = getDaysLeft(client.expiryDate);
-    const message = `Hi ${client.name}, your AMC for "${client.serviceName}" (₹${client.amount}) is ${days <= 0 ? 'expired' : `expiring in ${days} days`} (${client.expiryDate}). Please renew to avoid service interruption. - Team DomainTrack`;
-    window.open(`https://wa.me/${client.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
-  };
-
-  const handleSave = () => {
-    if (!formData.name || !formData.phone) {
-      alert('Kripya naam aur phone number bharein');
-      return;
+  const confirmDelete = async () => {
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/maintenance/${deleteId}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setClients(prev => prev.filter(c => c._id !== deleteId));
+        setIsDeleteOpen(false);
+      }
+    } catch (error) {
+      console.error('Error deleting client:', error);
+    } finally {
+      setIsSubmitting(false);
     }
+  };
 
-    const newAmount = Number(formData.amount);
-    let finalExpiry = formData.expiryDate;
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
 
-    if (editingId) {
-      const oldClient = clients.find(c => c.id === editingId);
-      const oldAmount = oldClient.amount || 0;
-      const difference = newAmount - oldAmount;
-
-      if (difference > 0) {
-        const currentExp = new Date(oldClient.expiryDate);
-        currentExp.setDate(currentExp.getDate() + 365);
-        finalExpiry = currentExp.toISOString().split('T')[0];
-
-        const historyEntry = {
-          id: Date.now(),
-          clientId: editingId,
-          clientName: formData.name,
-          amount: difference,
-          date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-          time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
-          notes: `AMC Renewed: ${formData.serviceName}`
-        };
-        setHistory(prev => [historyEntry, ...prev]);
+    try {
+      let response;
+      if (editingId) {
+        response = await fetch(`${API_BASE_URL}/api/maintenance/${editingId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
+      } else {
+        response = await fetch(`${API_BASE_URL}/api/maintenance`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(formData)
+        });
       }
 
-      setClients(prev => prev.map(c =>
-        c.id === editingId ? {
-          ...c,
-          ...formData,
-          amount: newAmount,
-          expiryDate: finalExpiry
-        } : c
-      ));
-    } else {
-      const newId = Date.now();
-      const newRecord = {
-        id: newId,
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(formData.name)}&background=random&color=fff`,
-        ...formData,
-        amount: newAmount
-      };
+      if (response.ok) {
+        const savedData = await response.json();
+        
+        // Log to history if new
+        if (!editingId) {
+          const newHistory = {
+            clientId: savedData._id,
+            clientName: savedData.name,
+            amount: savedData.amount,
+            date: new Date().toLocaleDateString(),
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+          };
+          
+          await fetch(`${API_BASE_URL}/api/history`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newHistory)
+          });
+          
+          // Re-fetch history to be sure
+          const historyRes = await fetch(`${API_BASE_URL}/api/history`);
+          if (historyRes.ok) setHistory(await historyRes.json());
+        }
 
-      if (newAmount > 0) {
-        const historyEntry = {
-          id: Date.now() + 1,
-          clientId: newId,
-          clientName: formData.name,
-          amount: newAmount,
-          date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-          time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
-          notes: `Initial AMC: ${formData.serviceName}`
-        };
-        setHistory(prev => [historyEntry, ...prev]);
+        if (editingId) {
+          setClients(prev => prev.map(c => c._id === editingId ? savedData : c));
+        } else {
+          setClients(prev => [savedData, ...prev]);
+        }
+        setIsModalOpen(false);
       }
-
-      setClients(prev => [newRecord, ...prev]);
+    } catch (error) {
+      console.error('Error saving maintenance record:', error);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    setIsModalOpen(false);
   };
 
   const filteredClients = clients.filter(client => {
     const matchesSearch = client.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (client.serviceName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      client.phone.includes(searchQuery);
-    
+      client.phone.includes(searchQuery) ||
+      client.serviceName?.toLowerCase().includes(searchQuery.toLowerCase());
+
+    if (statusFilter === 'All') return matchesSearch;
     if (statusFilter === 'Active') return matchesSearch && client.isActive;
     if (statusFilter === 'Inactive') return matchesSearch && !client.isActive;
     return matchesSearch;
   });
 
-  const activeCount = clients.filter(c => c.isActive).length;
-  const inactiveCount = clients.filter(c => !c.isActive).length;
+  const filteredHistory = history.filter(item =>
+    item.clientName?.toLowerCase().includes(historySearchQuery.toLowerCase())
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-2xl font-bold dark:text-white">Maintenance</h2>
-          <p className="text-slate-500 font-medium">Manage annual maintenance fees and service expiry.</p>
+          <h2 className="text-2xl font-bold dark:text-white">Maintenance & AMC</h2>
+          <p className="text-slate-500 font-medium">Manage client renewals and services.</p>
         </div>
         <div className="flex items-center gap-3">
-          <button 
+          <button
+            onClick={() => setIsHistoryOpen(true)}
+            className="p-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-50 transition-all shadow-sm group"
+          >
+            <History className="w-5 h-5 group-hover:rotate-[-10deg] transition-transform" />
+          </button>
+          <button
             onClick={handleAddClick}
-            className="btn-primary flex items-center justify-center gap-2 px-6 py-2.5"
+            className="bg-primary-600 hover:bg-primary-700 text-white px-5 py-2.5 rounded-xl font-bold text-sm transition-all shadow-lg shadow-primary-200 dark:shadow-none flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
-            Add Record
+            New Client
           </button>
-        </div>
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div 
-          onClick={() => setStatusFilter('Active')}
-          className={`cursor-pointer group p-4 bg-white dark:bg-slate-900 rounded-2xl border shadow-soft transition-all hover:shadow-md ${statusFilter === 'Active' ? 'border-primary-500 ring-1 ring-primary-500' : 'border-slate-100 dark:border-slate-800'}`}
-        >
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 rounded-xl group-hover:scale-110 transition-transform">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Active Services</p>
-              <h3 className="text-2xl font-bold dark:text-white">{activeCount}</h3>
-            </div>
-          </div>
-        </div>
-
-        <div 
-          onClick={() => setStatusFilter('Inactive')}
-          className={`cursor-pointer group p-4 bg-white dark:bg-slate-900 rounded-2xl border shadow-soft transition-all hover:shadow-md ${statusFilter === 'Inactive' ? 'border-slate-400 ring-1 ring-slate-400' : 'border-slate-100 dark:border-slate-800'}`}
-        >
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-slate-50 dark:bg-slate-800 text-slate-400 rounded-xl group-hover:scale-110 transition-transform">
-              <XCircle className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Inactive/Paused</p>
-              <h3 className="text-2xl font-bold dark:text-white">{inactiveCount}</h3>
-            </div>
-          </div>
         </div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-soft overflow-hidden">
         <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex flex-col sm:flex-row items-center gap-4">
-          <div className="grow relative w-full sm:max-w-md">
+          <div className="grow relative w-full">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by name or AMC service..."
+              placeholder="Search by name, phone or service..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg py-1.5 pl-9 pr-4 text-sm focus:ring-2 focus:ring-primary-100 outline-none"
+              className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary-100 outline-none transition-all"
             />
           </div>
-          <button
-            onClick={() => setIsHistoryOpen(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shadow-sm"
-          >
-            <History className="w-4 h-4 text-primary-500" />
-            Payment History
-          </button>
+          <div className="flex items-center gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
+            {['All', 'Active', 'Inactive'].map((f) => (
+              <button
+                key={f}
+                onClick={() => setStatusFilter(f)}
+                className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${statusFilter === f
+                  ? 'bg-white dark:bg-slate-900 text-primary-600 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+                  }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto min-h-[300px] relative">
+          {isLoading && (
+            <div className="absolute inset-0 bg-white/50 dark:bg-slate-900/50 backdrop-blur-[1px] z-10 flex items-center justify-center">
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 text-primary-600 animate-spin" />
+                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Syncing Cloud...</p>
+              </div>
+            </div>
+          )}
+
           <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/30 font-semibold text-xs text-slate-500 uppercase tracking-widest">
-                <th className="px-6 py-4">Client Name</th>
-                <th className="px-6 py-4">AMC Services</th>
-                <th className="px-6 py-4 text-center">Status</th>
-                <th className="px-6 py-4 text-center">AMC Cost (₹)</th>
+            <thead className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-800/30">
+              <tr className="text-xs font-bold text-slate-500 uppercase tracking-widest">
+                <th className="px-6 py-4">Client Detail</th>
+                <th className="px-6 py-4">Service</th>
                 <th className="px-6 py-4">Expiry</th>
-                <th className="px-6 py-4 text-right">Actions</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4 text-right">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {filteredClients.map((client) => {
-                const daysLeft = getDaysLeft(client.expiryDate);
-
-                let statusColor = 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400';
-                let dotColor = 'bg-emerald-500';
-                let statusLabel = `${daysLeft} Days Left`;
-
-                if (daysLeft <= 1) {
-                  statusColor = 'bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400 animate-pulse';
-                  dotColor = 'bg-rose-500';
-                  statusLabel = daysLeft < 0 ? 'Expired' : 'Expires Today';
-                } else if (daysLeft <= 15) {
-                  statusColor = 'bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400';
-                  dotColor = 'bg-orange-500';
-                } else if (daysLeft <= 30) {
-                  statusColor = 'bg-amber-50 text-amber-600 dark:bg-amber-900/20 dark:text-amber-400';
-                  dotColor = 'bg-amber-500';
-                }
-
-                return (
-                  <tr key={client.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors group">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <img src={client.avatar} alt={client.name} className="w-10 h-10 rounded-xl shadow-sm" />
-                        <div>
-                          <span className="block font-bold text-slate-700 dark:text-slate-200">
-                            {client.name}
-                          </span>
-                          <span className="text-[10px] text-slate-400 font-medium">{client.phone}</span>
-                        </div>
+              {filteredClients.map((client) => (
+                <tr key={client._id} className="hover:bg-slate-50/30 dark:hover:bg-slate-800/30 transition-colors group">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center text-slate-500 font-bold group-hover:bg-primary-50 group-hover:text-primary-600 transition-colors">
+                        {client.name.charAt(0)}
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-sm font-bold text-slate-600 dark:text-slate-300">
-                        {client.serviceName || 'Annual Maintenance'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <button 
-                        onClick={() => toggleStatus(client.id)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all hover:scale-105 ${client.isActive ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20' : 'bg-slate-100 text-slate-500 dark:bg-slate-800'}`}
+                      <div>
+                        <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{client.name}</p>
+                        <p className="text-xs text-slate-400 font-medium">{client.phone}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div>
+                      <p className="text-sm font-bold text-slate-600 dark:text-slate-300">{client.serviceName}</p>
+                      <p className="text-xs text-emerald-500 font-black italic">₹{client.amount}</p>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+                      <Calendar className="w-3.5 h-3.5" />
+                      {client.expiryDate}
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    <button
+                      onClick={() => toggleStatus(client._id)}
+                      className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${client.isActive
+                        ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                        : 'bg-slate-100 text-slate-500 border border-slate-200'
+                        }`}
+                    >
+                      {client.isActive ? <CheckCircle2 className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
+                      {client.isActive ? 'Active' : 'Expired'}
+                    </button>
+                  </td>
+                  <td className="px-6 py-4 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => handleEditClick(client)}
+                        className="p-2 text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-all hover:scale-110"
                       >
-                        <div className={`w-1.5 h-1.5 rounded-full ${client.isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
-                        {client.isActive ? 'Active' : 'Inactive'}
+                        <Edit2 className="w-4 h-4" />
                       </button>
-                    </td>
-                    <td className="px-6 py-4 text-center">
-                      <span className="inline-block px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg text-sm font-bold text-slate-600 dark:text-slate-300">
-                        ₹{client.amount || 0}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider w-fit ${statusColor}`}>
-                          <span className={`w-1.5 h-1.5 rounded-full ${dotColor}`}></span>
-                          {statusLabel}
-                        </span>
-                        <span className="text-[10px] text-slate-400 font-medium pl-1">Expiry: {new Date(client.expiryDate).toLocaleDateString()}</span>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => handleEditClick(client)}
-                          className="p-2 text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-lg transition-all hover:scale-110"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(client.id)}
-                          className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all hover:scale-110"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
+                      <button
+                        onClick={() => handleDeleteClick(client._id)}
+                        className="p-2 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-900/20 rounded-lg transition-all hover:scale-110"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSave}
-        title={editingId ? 'Edit Maintenance Record' : 'Add New Record'}
-        size="xl"
-      >
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-            {/* Left Column: General Info */}
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-4 bg-primary-50/30 dark:bg-primary-900/10 rounded-2xl border border-primary-100/50 dark:border-primary-800/50 mb-4">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-xl ${formData.isActive ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-200' : 'bg-slate-200 text-slate-500'}`}>
-                    <Activity className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</p>
-                    <p className={`text-xs font-black ${formData.isActive ? 'text-emerald-600' : 'text-slate-500'}`}>
-                      {formData.isActive ? 'ACTIVE SERVICE' : 'INACTIVE'}
-                    </p>
-                  </div>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.isActive}
-                    onChange={(e) => setFormData({ ...formData, isActive: e.target.checked })}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer dark:bg-slate-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 shadow-inner"></div>
-                </label>
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Full Name</label>
-                <div className="relative">
-                  <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                  <input
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Rahul Sharma"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-primary-600 focus:ring-0 outline-none transition-all shadow-none font-bold text-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Phone</label>
-                  <input
-                    type="tel"
-                    name="phone"
-                    value={formData.phone}
-                    onChange={handleInputChange}
-                    placeholder="+91..."
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 px-4 text-sm focus:border-primary-600 focus:ring-0 outline-none transition-all shadow-none font-bold text-slate-700 dark:text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Email</label>
-                  <input
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 px-4 text-sm focus:border-primary-600 focus:ring-0 outline-none transition-all shadow-none font-bold text-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Address / Notes</label>
-                <textarea
-                  name="notes"
-                  value={formData.notes}
-                  onChange={handleInputChange}
-                  rows="3"
-                  placeholder="Service address..."
-                  className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 px-4 text-sm focus:border-primary-600 focus:ring-0 outline-none transition-all shadow-none font-medium text-slate-700 dark:text-white"
-                ></textarea>
-              </div>
-            </div>
-
-            {/* Right Column: Service Details */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-1 h-5 bg-amber-500 rounded-full shadow-lg shadow-amber-200"></div>
-                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">Service Details</h4>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">AMC Service Name</label>
-                <div className="relative">
-                  <FileText className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                  <input
-                    type="text"
-                    name="serviceName"
-                    value={formData.serviceName}
-                    onChange={handleInputChange}
-                    placeholder="e.g. Website Maintenance"
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-primary-600 focus:ring-0 outline-none transition-all shadow-none font-bold text-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">AMC Cost (₹)</label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-bold">₹</span>
-                  <input
-                    type="number"
-                    name="amount"
-                    value={formData.amount}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-9 pr-4 text-sm focus:border-primary-600 focus:ring-0 outline-none font-bold text-emerald-600 transition-all shadow-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-1 px-1">Expiry Date</label>
-                <div className="relative">
-                  <Calendar className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4.5 h-4.5 text-slate-400" />
-                  <input
-                    type="date"
-                    name="expiryDate"
-                    value={formData.expiryDate}
-                    onChange={handleInputChange}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border-2 border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-primary-600 focus:ring-0 outline-none font-black transition-all shadow-none text-slate-700 dark:text-white"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Modal>
-
-      {/* History Modal remains same */}
+      {/* Client History Modal */}
       <Modal
         isOpen={isHistoryOpen}
         onClose={() => setIsHistoryOpen(false)}
-        title="AMC Payment History"
-        footer={<button onClick={() => setIsHistoryOpen(false)} className="btn-primary w-full">Close</button>}
+        title="Service Payment History"
+        size="lg"
       >
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -536,66 +373,211 @@ export default function Maintenance() {
               placeholder="Search history..."
               value={historySearchQuery}
               onChange={(e) => setHistorySearchQuery(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800 border-none rounded-xl py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary-100 outline-none"
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-800 rounded-xl py-2 pl-10 pr-4 text-sm"
             />
           </div>
-          <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-slate-100 dark:border-slate-800">
-            <table className="w-full text-left">
-              <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 text-[10px] font-bold text-slate-500 uppercase px-4 py-2 border-b border-slate-100 dark:border-slate-800">
-                <tr>
-                  <th className="px-4 py-3">Client</th>
-                  <th className="px-4 py-3">Cost</th>
-                  <th className="px-4 py-3 text-right">Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {history.filter(h => h.clientName.toLowerCase().includes(historySearchQuery.toLowerCase())).map(h => (
-                  <tr key={h.id}>
-                    <td className="px-4 py-3 text-sm font-bold dark:text-white">{h.clientName}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-emerald-600">₹{h.amount}</td>
-                    <td className="px-4 py-3 text-right">
-                      <p className="text-xs font-bold dark:text-slate-300">{h.date}</p>
-                      <p className="text-[10px] text-slate-400">{h.time}</p>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 scrollbar-thin">
+            {filteredHistory.map((item) => (
+              <div key={item._id} className="p-4 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl flex items-center justify-between group hover:border-primary-200 transition-all">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-emerald-50 dark:bg-emerald-900/20 rounded-xl flex items-center justify-center">
+                    <History className="w-5 h-5 text-emerald-600" />
+                  </div>
+                  <div>
+                    <h5 className="text-sm font-bold text-slate-700 dark:text-slate-200">{item.clientName}</h5>
+                    <div className="flex items-center gap-3 text-[10px] items-center font-bold text-slate-400 lowercase tracking-widest mt-1">
+                      <span className="flex items-center gap-1 uppercase"><Calendar className="w-3 h-3" /> {item.date}</span>
+                      <span className="flex items-center gap-1 uppercase"><Clock className="w-3 h-3" /> {item.time}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right">
+                  <p className="text-sm font-black text-slate-900 dark:text-white">₹{item.amount}</p>
+                  <p className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Received</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
+      </Modal>
+
+      {/* Add/Edit Client Modal */}
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={editingId ? 'Edit Client Detail' : 'Add New Client'}
+        size="xl"
+      >
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-5">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Customer Identity</h4>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Customer Full Name</label>
+                  <div className="relative">
+                    <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      name="name"
+                      value={formData.name}
+                      onChange={handleInputChange}
+                      placeholder="Jane Smith"
+                      className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-primary-600 outline-none transition-all"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Phone Number</label>
+                    <div className="relative">
+                      <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        name="phone"
+                        value={formData.phone}
+                        onChange={handleInputChange}
+                        placeholder="+91..."
+                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-primary-600 outline-none transition-all"
+                        required
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Email Address</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                      <input
+                        name="email"
+                        value={formData.email}
+                        onChange={handleInputChange}
+                        placeholder="jane@example.com"
+                        className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-primary-600 outline-none transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Physical Address</label>
+                  <div className="relative">
+                    <MapPin className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                    <textarea
+                      name="address"
+                      value={formData.address}
+                      onChange={handleInputChange}
+                      placeholder="Street address..."
+                      className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-primary-600 outline-none transition-all min-h-[60px] resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] mb-2">Service Configuration</h4>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Service or Plan Name</label>
+                  <div className="relative">
+                    <FileText className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <input
+                      name="serviceName"
+                      value={formData.serviceName}
+                      onChange={handleInputChange}
+                      placeholder="e.g., SEO Monthly"
+                      className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-emerald-500 outline-none transition-all"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">AMC Amount (₹)</label>
+                    <input
+                      type="number"
+                      name="amount"
+                      value={formData.amount}
+                      onChange={handleInputChange}
+                      className="w-full bg-emerald-50/50 dark:bg-emerald-900/10 border border-emerald-100 dark:border-emerald-900/30 rounded-xl py-3 px-4 text-sm font-black text-emerald-600 focus:border-emerald-500 outline-none transition-all"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Sync Date / Expiry</label>
+                    <input
+                      type="date"
+                      name="expiryDate"
+                      value={formData.expiryDate}
+                      onChange={handleInputChange}
+                      className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 px-4 text-sm font-bold focus:border-primary-600 outline-none transition-all"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Internal Notes</label>
+                  <div className="relative">
+                    <Notebook className="absolute left-3 top-3 w-4 h-4 text-slate-400" />
+                    <textarea
+                      name="notes"
+                      value={formData.notes}
+                      onChange={handleInputChange}
+                      placeholder="Private notes..."
+                      className="w-full bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-xl py-3 pl-10 pr-4 text-sm font-bold focus:border-primary-600 outline-none transition-all min-h-[70px] resize-none"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-4 pt-4">
+            <button
+              type="button"
+              onClick={() => setIsModalOpen(false)}
+              className="flex-1 px-6 py-3.5 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-[2] bg-primary-600 hover:bg-primary-700 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-xl shadow-primary-100 dark:shadow-none transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              {editingId ? 'Update Client' : 'Deploy Records'}
+            </button>
+          </div>
+        </form>
       </Modal>
 
       {/* Confirmation Modal */}
       <Modal
         isOpen={isConfirmOpen}
         onClose={() => setIsConfirmOpen(false)}
-        onSave={handleConfirmStatus}
-        title="Confirm Status Change"
-        footer={
-          <div className="flex gap-3 w-full">
-            <button 
-              onClick={() => setIsConfirmOpen(false)}
-              className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-all"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={handleConfirmStatus}
-              className={`flex-1 px-4 py-2.5 text-white font-bold rounded-xl transition-all shadow-sm ${confirmData.action === 'Activate' ? 'bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200' : 'bg-rose-500 hover:bg-rose-600 shadow-rose-200'}`}
-            >
-              Confirm {confirmData.action}
-            </button>
-          </div>
-        }
+        title="Change Status"
+        size="sm"
       >
-        <div className="text-center py-4">
-          <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 ${confirmData.action === 'Activate' ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'}`}>
-            {confirmData.action === 'Activate' ? <CheckCircle2 className="w-8 h-8" /> : <XCircle className="w-8 h-8" />}
+        <div className="space-y-6 text-center">
+          <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-800">
+            <Activity className="w-12 h-12 text-primary-500 mx-auto mb-4" />
+            <h4 className="text-lg font-bold dark:text-white capitalize mb-2">{confirmData.action} Client?</h4>
+            <p className="text-sm text-slate-500 font-medium">Are you sure you want to {confirmData.action.toLowerCase()} <span className="text-primary-600 font-bold">{confirmData.name}</span>?</p>
           </div>
-          <h4 className="text-lg font-bold dark:text-white mb-2">Are you sure?</h4>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Kya aap sach mein <span className="font-bold text-slate-700 dark:text-slate-200">"{confirmData.name}"</span> ki service ko <span className={confirmData.action === 'Activate' ? 'text-emerald-600' : 'text-rose-600'}>{confirmData.action}</span> karna chahte hain?
-          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setIsConfirmOpen(false)}
+              className="flex-1 px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500"
+            >
+              Wait
+            </button>
+            <button
+              onClick={confirmStatusChange}
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-3 bg-primary-600 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center"
+            >
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Yes, Do it'}
+            </button>
+          </div>
         </div>
       </Modal>
 
@@ -603,33 +585,30 @@ export default function Maintenance() {
       <Modal
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
-        onSave={confirmDelete}
-        title="Confirm Deletion"
-        footer={
-          <div className="flex gap-3 w-full">
-            <button 
-              onClick={() => setIsDeleteOpen(false)}
-              className="flex-1 px-4 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 transition-all"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={confirmDelete}
-              className="flex-1 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl transition-all shadow-sm shadow-rose-200"
-            >
-              Delete Record
-            </button>
-          </div>
-        }
+        title="Delete Record"
+        size="sm"
       >
-        <div className="text-center py-4">
-          <div className="w-16 h-16 bg-rose-50 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Trash2 className="w-8 h-8" />
+        <div className="space-y-6 text-center">
+          <div className="p-6 bg-rose-50 dark:bg-rose-900/10 rounded-3xl border border-rose-100 dark:border-rose-900/20">
+            <Trash2 className="w-12 h-12 text-rose-500 mx-auto mb-4" />
+            <h4 className="text-lg font-bold text-rose-900 dark:text-rose-400 mb-2">Delete Permanently?</h4>
+            <p className="text-sm text-rose-700 dark:text-rose-500 font-medium">This record will be removed from your cloud database forever.</p>
           </div>
-          <h4 className="text-lg font-bold dark:text-white mb-2">Delete Client?</h4>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Kya aap sach mein is record ko delete karna chahte hain? Is ke baad data wapas nahi aayega.
-          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setIsDeleteOpen(false)}
+              className="flex-1 px-4 py-3 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-black uppercase tracking-widest text-slate-500"
+            >
+              No, Keep it
+            </button>
+            <button
+              onClick={confirmDelete}
+              disabled={isSubmitting}
+              className="flex-1 px-4 py-3 bg-rose-600 text-white rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center"
+            >
+              {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Yes, Delete'}
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

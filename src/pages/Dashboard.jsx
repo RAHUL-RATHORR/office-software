@@ -1,26 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Users, 
-  CreditCard, 
-  Calendar, 
-  ArrowRight, 
-  ExternalLink, 
-  Globe, 
-  Coins, 
-  TrendingUp, 
+import {
+  Users,
+  CreditCard,
+  Calendar,
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  Coins,
+  TrendingUp,
   Wallet,
   Activity,
   Clock
 } from 'lucide-react';
-import { 
-  AreaChart, 
-  Area, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer
 } from 'recharts';
 import StatsCard from '../components/common/StatsCard';
 import Badge from '../components/common/Badge';
@@ -44,7 +44,7 @@ export default function Dashboard() {
 
     let mRev = 0;
     let yRev = 0;
-    
+
     // Monthly trend data
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const trend = months.map((m, i) => {
@@ -136,40 +136,40 @@ export default function Dashboard() {
                 <TrendingUp className="w-5 h-5 text-primary-500" />
               </div>
             </div>
-            
+
             <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={chartData}>
                   <defs>
                     <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" opacity={0.5} />
-                  <XAxis 
-                    dataKey="name" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}} 
+                  <XAxis
+                    dataKey="name"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }}
                     dy={10}
                   />
-                  <YAxis 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{fontSize: 10, fill: '#64748b', fontWeight: 'bold'}}
+                  <YAxis
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fill: '#64748b', fontWeight: 'bold' }}
                   />
-                  <Tooltip 
-                    contentStyle={{borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', backgroundColor: '#1e293b', color: '#fff'}}
-                    itemStyle={{color: '#818cf8', fontWeight: 'bold'}}
+                  <Tooltip
+                    contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', backgroundColor: '#1e293b', color: '#fff' }}
+                    itemStyle={{ color: '#818cf8', fontWeight: 'bold' }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="revenue" 
-                    stroke="#6366f1" 
+                  <Area
+                    type="monotone"
+                    dataKey="revenue"
+                    stroke="#6366f1"
                     strokeWidth={3}
-                    fillOpacity={1} 
-                    fill="url(#colorRev)" 
+                    fillOpacity={1}
+                    fill="url(#colorRev)"
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -182,7 +182,7 @@ export default function Dashboard() {
                 <h3 className="text-lg font-bold dark:text-white">Recent Domains</h3>
                 <p className="text-xs text-slate-500 font-medium">Last 5 domains added to tracker</p>
               </div>
-              <button 
+              <button
                 onClick={() => navigate('/maintenance')}
                 className="flex items-center gap-2 text-xs font-bold text-primary-600 hover:gap-3 transition-all"
               >
@@ -202,9 +202,9 @@ export default function Dashboard() {
                       <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">{domain.clientName}</p>
                     </div>
                   </div>
-                  <Badge 
-                    text={`₹${domain.price}`} 
-                    type={index % 2 === 0 ? 'emerald' : 'primary'} 
+                  <Badge
+                    text={`₹${domain.price}`}
+                    type={index % 2 === 0 ? 'emerald' : 'primary'}
                   />
                 </div>
               ))}
@@ -235,8 +235,8 @@ export default function Dashboard() {
 
           <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-100 dark:border-slate-800 shadow-soft p-6">
             <div className="flex items-center justify-between mb-6">
-               <h4 className="font-bold dark:text-white">Account Status</h4>
-               <Badge text="Admin" type="primary" />
+              <h4 className="font-bold dark:text-white">Account Status</h4>
+              <Badge text="Admin" type="primary" />
             </div>
             <div className="space-y-6">
               <div className="flex items-center gap-4">
@@ -244,8 +244,8 @@ export default function Dashboard() {
                   <Activity className="w-6 h-6 text-slate-400" />
                 </div>
                 <div>
-                   <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Server Load</p>
-                   <p className="text-sm font-black dark:text-white leading-none">Optimal (0.2s)</p>
+                  <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Server Load</p>
+                  <p className="text-sm font-black dark:text-white leading-none">Optimal (0.2s)</p>
                 </div>
               </div>
               <div className="pt-4 border-t border-slate-100 dark:border-slate-800">
