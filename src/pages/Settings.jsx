@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, Mail, Camera, Save, RefreshCw, Trash2, ShieldCheck, Globe, Image, Upload, CloudDownload, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
+import Badge from '../components/common/Badge';
 
 // API Configuration
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';

@@ -1,21 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Search, History as HistoryIcon, User, Coins, Calendar, ArrowUpRight, Clock } from 'lucide-react';
+import { Search, History as HistoryIcon, User, Coins, Calendar, ArrowUpRight, Clock, Loader2 } from 'lucide-react';
+
+// API Configuration
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
 
 export default function History() {
   const [history, setHistory] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    const savedHistory = JSON.parse(localStorage.getItem('domaintrack_history') || '[]');
-    // Sort by date (latest first)
-    setHistory(savedHistory.sort((a, b) => new Date(b.date) - new Date(a.date)));
+    fetchHistory();
   }, []);
+
+  const fetchHistory = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/history`);
+      if (response.ok) {
+        const data = await response.json();
+        // Sort by date (latest first)
+        const sorted = data.sort((a, b) => new Date(b.date) - new Date(a.date));
+        setHistory(sorted);
+      }
+    } catch (error) {
+      console.error('Error fetching payment history:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const filteredHistory = history.filter(item => 
     item.clientName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    item.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ||
     item.amount?.toString().includes(searchQuery)
   );
+
+  if (isLoading) {
+    return (
+      <div className="h-[80vh] flex flex-col items-center justify-center gap-4">
+        <Loader2 className="w-10 h-10 text-primary-600 animate-spin" />
+        <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.2em]">Syncing History...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -38,7 +65,7 @@ export default function History() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-soft overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto min-h-[400px]">
           <table className="w-full text-left border-separate border-spacing-0">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-800/50">
@@ -52,7 +79,7 @@ export default function History() {
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {filteredHistory.length > 0 ? (
                 filteredHistory.map((item, index) => (
-                  <tr key={index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors group">
+                  <tr key={item._id || index} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <Calendar className="w-4 h-4 text-slate-400" />
@@ -81,7 +108,7 @@ export default function History() {
                     </td>
                     <td className="px-6 py-4">
                       <span className="text-sm text-slate-500 font-medium italic truncate max-w-[200px] block">
-                        {item.notes || 'Maintenance Payment'}
+                        {item.time ? `At ${item.time}` : 'Maintenance Payment'}
                       </span>
                     </td>
                   </tr>
